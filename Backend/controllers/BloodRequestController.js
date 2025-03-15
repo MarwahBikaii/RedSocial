@@ -33,7 +33,7 @@ const getNearestHospital = async (lat, lng) => {
 
     const hospital = hospitals[0];
 
-    // 🔥 Fetch address separately using Reverse Geocoding if not available
+    // Fetch address separately using Reverse Geocoding if not available
     let address = hospital.tags["addr:full"] || hospital.tags["addr:street"] || null;
     if (!address) {
       address = await getHospitalAddress(hospital.lat, hospital.lon);
@@ -132,11 +132,6 @@ const getHospitalFromOverpass = async (lat, lng) => {
   }
 };
 
-// 🔥 Test with sample coordinates (Tripoli, Lebanon)
-getNearestHospital(34.4389, 35.8482).then(console.log);
-
-
-// 🔥 Test with sample coordinates (Tripoli, Lebanon)
 
 
 (async () => {
@@ -185,7 +180,7 @@ exports.createBloodRequest = async (req, res) => {
       return res.status(400).json({ message: "Invalid bloodType. Must be a string." });
     }
 
-    // 🧑‍⚕️ Ensure the requestedBy user exists
+    //  Ensure the requestedBy user exists
     const user = await User.findById(requestedBy);
     if (!user) return res.status(404).json({ message: "User not found." });
 
@@ -193,7 +188,7 @@ exports.createBloodRequest = async (req, res) => {
       return res.status(403).json({ message: "Unauthorized to create requests." });
     }
 
-    // 🔥 If hospital is not provided, assign the nearest hospital
+    // If hospital is not provided, assign the nearest hospital
     let assignedHospital = hospital;
     if (!hospital) {
       const [lng, lat] = location.coordinates;
