@@ -43,65 +43,21 @@
 
 
         
-      exports.signup = async (req, res) => {
-    console.log("Request body:", req.body);  // Debugging the incoming data
-
-    const { firstName, lastName, email, username, password, passwordConfirm, role, bloodType, phone } = req.body;
-
-    try {
-        // Check if email is already in use
-        const emailCheck = await User.findOne({ email });
-        if (emailCheck) {
-            return res.status(409).json({ message: "Email is in use." });
-        }
-
-        // Validate email format
-        if (!validator.isEmail(email)) {
-            return res.status(400).json({ message: "Invalid Email." });
-        }
-
-        // Ensure required fields are present
-        if (!bloodType && (role.includes('user'))) {
-            return res.status(400).json({ message: "Blood type is required for users." });
-        }
-
-        if (!phone && (role.includes('user') || role.includes('hospital'))) {
-            return res.status(400).json({ message: "Phone number is required for users and hospitals." });
-        }
-
-        // Create a new user instance
-        const newUser = new User({
-            firstName,
-            lastName,
-            email,
-            username,
-            password,
-            passwordConfirm,
-            role,
-            bloodType,
-            phone,
-        });
-
-        // Explicitly validate the document
-        await newUser.validate();
-
-        // Save the user to the database
-        await newUser.save();
-
-        // Send response with token
-        // signing up and logging in the user
-        createSendToken(newUser, 201, res);
-    } catch (err) {
-        // Handle validation errors
-        if (err.name === "ValidationError") {
-            return res.status(400).json({ message: err.message });
-        }
-        // Handle other errors
-        res.status(500).json({ message: err.message });
-        console.error("Error in signup:", err);
-    }
+     exports.signup = async (req, res) => {
+  try {
+    console.log("Location data received:", req.body.location);
+    
+    const user = new User(req.body);
+    await user.save();
+    
+    console.log("Stored location:", user.location);
+    // This should show the properly formatted GeoJSON object
+    
+    createSendToken(user, 201, res);
+  } catch (err) {
+    // error handling
+  }
 };
-
         exports.login= async(req,res)=>{
             console.log("Login route hit");  // Log to see if the route is hit
             try{
@@ -292,7 +248,7 @@ exports.getUsers = async (req, res) => {
 
 exports.updateProfile = async (req, res) => {
   try {
-    const { userId, firstName, lastName, phone, bloodType, profilePicture, emergencyContact, location, oldPassword, newPassword } = req.body;
+    const { userId, firstName, lastName, phone, bloodType, profilePicture, emergencyContact, location, oldPassword, newPassword,availability } = req.body;
 
     // Find the user by userId
     const user = await User.findById(userId);
@@ -310,6 +266,7 @@ exports.updateProfile = async (req, res) => {
     if (profilePicture) user.profilePicture = profilePicture;
     if (emergencyContact) user.emergencyContact = emergencyContact;
     if (location) user.location = location;
+    if (availability) user.availability = availability;
 
     // Handle password change logic
     if (oldPassword && newPassword) {
@@ -336,7 +293,9 @@ exports.updateProfile = async (req, res) => {
 
 exports.getProfile = async (req, res) => {
   try {
+
     const { userId } = req.params; // Get userId from request parameters
+      console.log(userId)
 
     const user = await User.findById(userId).select(
       "firstName lastName email phone bloodType profilePicture location availability emergencyContact role"

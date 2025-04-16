@@ -8,7 +8,7 @@ router.post('/auth/login', login); // This maps POST /login to the login functio
 router.post('/logout', logout); // This maps POST /logout to the logout function
 router.post("/google-login", googleLogin); // Add this route
 router.post("/loginWithGoogle", loginWithGoogle); // Add this route
-router.post('/updateProfile', updateProfile); // This maps POST /signup to the signup function
+router.put('/updateProfile', authenticate,updateProfile); // This maps POST /signup to the signup function
 router.get('/profile/:userId', authenticate, getProfile);
 router.get('/search', authenticate, searchUsers);
 

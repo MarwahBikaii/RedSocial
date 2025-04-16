@@ -1,46 +1,37 @@
-﻿const express= require('express');
-const { connectToDatabase } = require('./database');
-const app= express();
-const DB= require('./database').connectToDatabase;
-const userRouter=require("./routes/userRouter")
-const cors = require('cors');
+﻿const express = require("express");
+const { connectToDatabase } = require("./database");
+const app = express();
+const cors = require("cors");
 const cookieParser = require("cookie-parser");
-const BloodRequestRouter= require("./routes/BloodRequestRouter")
-const dotenv=require("dotenv"); 
-const http = require('http');    
-const socket = require('./utils/socket');
+const dotenv = require("dotenv");
+const http = require("http");
+const socket = require("./utils/socket"); // ✅ Import socket module
 
 dotenv.config();
 
-// Run the database connection
+// Connect to Database
 connectToDatabase();
 
-//Add necessary middleware
+// Middleware
 app.use(express.json());
-app.use(cookieParser()); // ✅ Middleware to handle cookies
-
-// TODO: Check the below 
-/*app.use(express.urlencoded({extended:true})) Was used in project setup */
-
+app.use(cookieParser());
 app.use(cors({
-    origin: "http://localhost:3001", // Allow your frontend domain
-    credentials: true, // Allow credentials like cookies
+    origin: "http://localhost:3001", // Adjust to match frontend
+    credentials: true,
 }));
 
+// Create HTTP server
 const server = http.createServer(app);
 
-socket.init(server); // Initialize WebSocket
+// ✅ Initialize WebSocket BEFORE starting server
+socket.init(server); 
 
+// ✅ Listen for connections
 server.listen(3000, () => {
   console.log("🚀 Server running on port 3000");
 });
 
-
-app.options('*', cors());
-
-app.use("/api/Requests", BloodRequestRouter)
-
-app.use("/api/users", userRouter)
-
-
-
+// Routes
+app.use("/api/Requests", require("./routes/BloodRequestRouter"));
+app.use("/api/users", require("./routes/userRouter"));
+app.use("/api/EducationalContent", require("./routes/EducationalContentRouter"));

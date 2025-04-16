@@ -1,26 +1,38 @@
-﻿const socketIo = require('socket.io');
+﻿const socketIo = require("socket.io");
 
 let io;
 
 module.exports = {
   init: (server) => {
-    io = socketIo(server, { cors: { origin: "*" } });
+    console.log("✅ Initializing Socket.io...");
+    
+    io = socketIo(server, {
+      cors: {
+        origin: "http://localhost:3001", // Adjust frontend URL
+        credentials: true,
+      },
+    });
 
-    io.on('connection', (socket) => {
-      console.log(`🔗 New user connected: ${socket.id}`);
+    console.log("✅ Socket.io initialized successfully!");
 
-      socket.on('registerForNotifications', (userId) => {
-        socket.join(userId); // Allow private notifications
-        console.log(`✅ User ${userId} registered for blood request notifications`);
+    io.on("connection", (socket) => {
+      console.log("🔥 New client connected:", socket.id);
+
+      socket.on("joinBloodRequestRoom", (requestId) => {
+        console.log(`📌 User joined blood request room: ${requestId}`);
+        socket.join(requestId);
       });
 
-      socket.on('disconnect', () => {
-        console.log(`❌ User disconnected: ${socket.id}`);
+      socket.on("disconnect", () => {
+        console.log("❌ Client disconnected:", socket.id);
       });
     });
   },
+
   getIO: () => {
-    if (!io) throw new Error("Socket.io not initialized!");
+    if (!io) {
+      throw new Error("Socket.io not initialized!");
+    }
     return io;
-  }
+  },
 };

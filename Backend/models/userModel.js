@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+﻿const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 // User Schema
@@ -26,9 +26,10 @@ const UserSchema = new mongoose.Schema({
     message: 'Phone number is required for users and hospitals.'
   },
 
-  location: {
-    city: String,
-    coordinates: { type: { lat: Number, lng: Number }, index: '2dsphere' }
+   location: {
+    type: { type: String, default: "Point" },
+
+    coordinates: { type: [Number], index: "2dsphere" } // ✅ Ensure GeoJSON
   },
   availability: { type: Boolean, default: true },
   profilePicture: { type: String, default: '' },
@@ -48,8 +49,7 @@ const UserSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Donation'
   }],
-  isVerified: { type: Boolean, default: false },  // New verification flag
-  availableForDonation: { type: Boolean, default: true } // Whether the donor is available for donation
+  isVerified: { type: Boolean, default: false }  // New verification flag
 }, { timestamps: true });
 
 

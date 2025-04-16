@@ -3,6 +3,7 @@ const User = require('../models/userModel'); // Import User model
 
 
 
+const { getIO } = require("../utils/socket"); // Adjust the path as needed
 
 // Function to get the nearest hospital
 const axios = require('axios');
@@ -34,15 +35,15 @@ const getNearestHospital = async (lat, lng) => {
     const hospital = hospitals[0];
 
     // Fetch address separately using Reverse Geocoding if not available
-    let address = hospital.tags["addr:full"] || hospital.tags["addr:street"] || null;
+    let address = hospital.tags["addr:full"] || hospital.tags["addr:street"] || "Not Provided";
     if (!address) {
       address = await getHospitalAddress(hospital.lat, hospital.lon);
     }
 
     return {
-      name: hospital.tags.name || "Unknown Hospital",
+      name: hospital.tags.name || "Not Provided",
       address: address || "Address not available",
-      contactNumber: hospital.tags.phone || hospital.tags["contact:phone"] || "Unknown"
+      contactNumber: hospital.tags.phone || hospital.tags["contact:phone"] || "Not Provided"
     };
   } catch (error) {
     console.error("❌ Error fetching hospital from Overpass API:", error.message);
@@ -145,7 +146,6 @@ const getHospitalFromOverpass = async (lat, lng) => {
 
 const io= require("../utils/socket"); // Adjust path based on your project structure
 
-
 exports.createBloodRequest = async (req, res) => {
   console.log("📝 Request Body:", req.body);
 
@@ -197,18 +197,12 @@ exports.createBloodRequest = async (req, res) => {
     }
 
     // 🚨 **Mandatory Hospital Check**
-if (!assignedHospital) {
-  return res.status(400).json({ 
-    message: "No nearby hospital found. Please enter a hospital manually." 
-  });
-}
+    if (!assignedHospital) {
+      return res.status(400).json({ 
+        message: "No nearby hospital found. Please enter a hospital manually." 
+      });
+    }
 
-// 🚨 **Mandatory Hospital Check**
-if (!assignedHospital) {
-  return res.status(400).json({ 
-    message: "No nearby hospital found. Please enter a hospital manually." 
-  });
-}
     // ✅ Create the blood request
     const newRequest = new BloodRequest({
       bloodType,
@@ -241,38 +235,39 @@ if (!assignedHospital) {
 
     console.log("📢 Found", nearbyRequests.length, "nearby blood requests.");
 
+    // Get the Socket.io instance
+    const io = getIO();
+
     // 🔔 **Notify users who created these nearby requests**
     const notifiedUsers = new Set(); // Avoid duplicate notifications
 
     nearbyRequests.forEach(request => {
+      const recipientId = request.requestedBy.toString();
 
-          const recipientId = request.requestedBy.toString(); // ✅ Define recipientId
+      if (!notifiedUsers.has(recipientId)) {
+        notifiedUsers.add(recipientId);
 
-          
-      if (!notifiedUsers.has(request.requestedBy.toString())) {
-        notifiedUsers.add(request.requestedBy.toString());
+        console.log(`🔔 Emitting notification to user: ${recipientId}`);
 
-        console.log(`🔔 Emitting notification to user: ${request.requestedBy}`);
-
-
-            // 🔍 Log the notification in the backend before emitting
-    console.log("📢 Preparing to send notification:");
-    console.log({
-      recipientId,
-      message: "A new blood request has been posted near your request!",
-      newRequest: newRequest,
-      nearbyRequest: request
-    });
-
-
-        // Emit a real-time notification via Socket.io
-        io.getIO(request.requestedBy.toString()).emit("nearbyBloodRequest", {
+        // 🔍 Log the notification in the backend before emitting
+        console.log("📢 Preparing to send notification:", {
+          recipientId,
           message: "A new blood request has been posted near your request!",
-          newRequest: newRequest,
+          newRequest,
+          nearbyRequest: request
+        });
+
+        // ✅ **Corrected socket emission**
+        io.to(recipientId).emit("nearbyBloodRequest", {
+          message: "A new blood request has been posted near your request!",
+          newRequest,
           nearbyRequest: request
         });
       }
     });
+
+    // ✅ Emit event for all connected users about the new blood request
+    io.emit("newBloodRequest", newRequest);
 
     // ✅ Respond with success
     res.status(201).json({ message: "Blood request created successfully!", data: newRequest });
@@ -286,21 +281,88 @@ if (!assignedHospital) {
 exports.getAllBloodRequests = async (req, res) => {
   try {
     const { bloodType, location, urgencyLevel, page = 1, limit = 10 } = req.query;
-
-    let filter = {};
-    if (bloodType) filter.bloodType = bloodType;
-    if (location) filter['location.city'] = location;
-    if (urgencyLevel) filter.urgencyLevel = urgencyLevel;
-
-    const skip = (page - 1) * limit;
     
-    const requests = await BloodRequest.find(filter)
-      .select('bloodType unitsRequired location urgencyLevel status requestedBy createdAt')
-      .populate('requestedBy', 'firstName lastName phone role')
-      .skip(skip)
-      .limit(parseInt(limit));
+    let matchStage = {};
+    if (bloodType) matchStage.bloodType = bloodType;
+    if (location) matchStage['location.city'] = location;
+    if (urgencyLevel) matchStage.urgencyLevel = urgencyLevel;
 
-    const total = await BloodRequest.countDocuments(filter);
+    const now = new Date();
+
+    const requests = await BloodRequest.aggregate([
+      { $match: matchStage },
+      {
+        $addFields: {
+          urgencyWeight: { 
+            $switch: { 
+              branches: [
+                { case: { $eq: ["$urgencyLevel", "high"] }, then: 3 },
+                { case: { $eq: ["$urgencyLevel", "medium"] }, then: 2 },
+                { case: { $eq: ["$urgencyLevel", "low"] }, then: 1 },
+              ],
+              default: 1 
+            }
+          },
+          timeLeftWeight: {
+            $cond: {   
+              if: { $gt: ["$expirationDate", now] },
+              then: { $subtract: ["$expirationDate", now] },
+              else: 0
+            }
+          },
+          recentUpdateWeight: {
+            $cond: {   
+              if: { $gt: ["$updatedAt", new Date(now - 6 * 60 * 60 * 1000)] },
+              then: 20,
+              else: 0
+            }
+          }
+        }
+      },
+      {
+        $addFields: {   
+          priorityScore: {
+            $add: [
+              { $multiply: ["$urgencyWeight", 10] },
+              { $divide: ["$timeLeftWeight", 1000000000] },
+              "$recentUpdateWeight"
+            ]
+          }
+        }
+      },
+      { $sort: { priorityScore: -1 } },  
+      { $skip: (page - 1) * limit },    
+      { $limit: parseInt(limit) },
+      {
+        $lookup: {
+          from: "users",
+          localField: "requestedBy",
+          foreignField: "_id",
+          as: "requestedByDetails"
+        }
+      },
+      { $unwind: "$requestedByDetails" },
+      { 
+        $project: {
+          _id: 1, 
+          bloodType: 1, 
+          urgencyLevel: 1, 
+          status: 1, 
+          expirationDate: 1, 
+          location: 1, 
+          createdAt: 1, 
+          priorityScore: 1,
+          hospital: 1,  // Add this line to include hospital data
+          "requestedByDetails._id": 1,
+          "requestedByDetails.firstName": 1,
+          "requestedByDetails.lastName": 1,
+          "requestedByDetails.phone": 1,
+          "requestedByDetails.email": 1,
+        }
+      }
+    ]);
+
+    const total = await BloodRequest.countDocuments(matchStage); // Use countDocuments with the same match stage
 
     res.status(200).json({
       message: "Blood requests retrieved successfully",
@@ -313,7 +375,7 @@ exports.getAllBloodRequests = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error(error);
+    console.error("❌ Error fetching blood requests:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -346,26 +408,173 @@ exports.searchNearBloodRequests = async (lat, lng, radius) => {
   try {
     if (!lat || !lng) throw new Error("Latitude and longitude are required.");
 
-    console.log("Searching for requests near:", lat, lng, "within radius:", radius);
+    console.log("Searching near:", { lat, lng, radius }); // Log cleanly
 
     const requests = await BloodRequest.find({
       location: {
         $near: {
           $geometry: {
             type: "Point",
-            coordinates: [parseFloat(lng), parseFloat(lat)] // [lng, lat]
+            coordinates: [parseFloat(lng), parseFloat(lat)] // Mongo uses [lng, lat]
           },
           $maxDistance: radius * 1000 // Convert km to meters
         }
       }
     });
 
-    console.log("Found requests:", requests);
     return requests;
   } catch (error) {
-    console.error("Error:", error.message);
-    throw error;
+    console.error("Search error:", error.message);
+    throw error; // Let the route handler manage the HTTP response
   }
 };
 
 
+
+const iofunction = require("../utils/socket").getIO(); // Import socket instance
+
+
+exports.updateBloodRequest = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const updateData = req.body; // Get all sent fields
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ message: "No data provided for update." });
+    }
+
+    console.log("🔍 Update Data Received:", updateData);
+
+    // ✅ Use findOneAndUpdate with dynamic fields
+    const updatedRequest = await BloodRequest.findOneAndUpdate(
+      { _id: requestId },
+      { $set: updateData },  // ✅ Only update sent fields
+      { new: true, runValidators: true } // ✅ Returns updated doc & validates
+    );
+
+    if (!updatedRequest) {
+      return res.status(404).json({ message: "Blood request not found." });
+    }
+
+    console.log("🟢 After Update in DB:", updatedRequest);
+
+    // Emit real-time update event
+    const io = getIO();
+    io.emit("bloodRequestUpdated", updatedRequest);
+
+    return res.status(200).json({ message: "Blood request updated successfully!", data: updatedRequest });
+
+  } catch (error) {
+    console.error("❌ Error updating blood request:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+const { isBloodTypeCompatible } = require('../utils/bloodCompatibility');
+
+exports.assignDonorToRequest = async (req, res) => {
+  const { requestId, donorId } = req.body;
+
+  console.log('[DEBUG] Assigning donor:', { requestId, donorId }); // Log input
+
+  try {
+    // 1. Fetch request and donor
+    const request = await BloodRequest.findById(requestId);
+    const donor = await User.findById(donorId);
+
+    console.log('[DEBUG] Fetched request:', request?._id); // Log request ID
+    console.log('[DEBUG] Fetched donor:', donor?._id, 'Blood type:', donor?.bloodType); // Log donor + blood type
+
+    if (!request || !donor) {
+      console.error('[ERROR] Request or donor not found');
+      return res.status(404).json({ error: "Request or donor not found." });
+    }
+
+    // 2. Check blood compatibility
+    const isCompatible = isBloodTypeCompatible(donor.bloodType, request.bloodType);
+    console.log('[DEBUG] Blood compatibility:', isCompatible); // Log compatibility check
+
+    if (!isCompatible) {
+      console.error('[ERROR] Blood types incompatible:', {
+        donor: donor.bloodType,
+        recipient: request.bloodType
+      });
+      return res.status(400).json({ 
+        error: "Blood types are not compatible for donation.",
+        details: `Donor (${donor.bloodType}) cannot donate to recipient (${request.bloodType}).`
+      });
+    }
+
+    // 3. Check if donor is already assigned
+    const isAlreadyAssigned = request.assignedDonors.includes(donorId);
+    console.log('[DEBUG] Donor already assigned:', isAlreadyAssigned); // Log assignment check
+
+    if (isAlreadyAssigned) {
+      console.error('[ERROR] Donor already assigned to request');
+      return res.status(400).json({ 
+        error: "This donor is already assigned to the request." 
+      });
+    }
+
+    // 4. Assign donor & save
+    request.assignedDonors.push(donorId);
+    await request.save();
+
+    console.log('[SUCCESS] Donor assigned:', donorId); // Log success
+    res.status(200).json({ 
+      message: "Donor assigned successfully!",
+      request 
+    });
+
+  } catch (error) {
+    console.error('[ERROR] Server error:', error.message, error.stack); // Log full error
+    res.status(500).json({ error: "Server error: " + error.message });
+  }
+};
+
+exports.deleteBloodRequest = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+
+    // Find the blood request by ID
+    const bloodRequest = await BloodRequest.findById(requestId);
+
+    if (!bloodRequest) {
+      return res.status(404).json({ message: "Blood request not found" });
+    }
+
+    // Delete the request
+    await bloodRequest.deleteOne();
+
+    // Emit real-time update (if using socket.io)
+    const io = getIO();
+    io.emit("bloodRequestDeleted", { requestId });
+
+    res.status(200).json({ message: "Blood request deleted successfully!" });
+
+  } catch (error) {
+    console.error("❌ Error deleting blood request:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+
+
+exports.getMyRequests = async (req, res) => {
+  try {
+    const userId = Object.keys(req.query)[0];
+    
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID is required' });
+    }
+
+    const requests = await BloodRequest.find({
+      $or: [{ requestedBy: userId }, { requestedFor: userId }],
+    }).populate('requestedBy', 'name email'); // Only populate requestedBy
+
+    res.status(200).json(requests);
+  } catch (error) {
+    console.error('Error in getMyRequests:', error);
+    res.status(500).json({ message: 'Error fetching requests', error: error.message });
+  }
+};

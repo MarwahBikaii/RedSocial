@@ -1,0 +1,32 @@
+.top-nav-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px;
+  background-color: #000;
+}
+
+.top-nav-bar a {
+  display: flex;
+  align-items: center;
+  color: white;
+  text-decoration: none;
+  padding: 10px;
+  transition: color 0.3s;
+}
+
+.top-nav-bar a:hover {
+  color: #ccc;
+}
+
+.top-nav-bar .relative {
+  position: relative;
+}
+
+.top-nav-bar .dropdown {
+  display: none;
+}
+
+.top-nav-bar .dropdown.open {
+  display: block;
+}
