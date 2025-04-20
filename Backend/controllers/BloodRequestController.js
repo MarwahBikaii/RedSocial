@@ -470,68 +470,110 @@ exports.updateBloodRequest = async (req, res) => {
   }
 };
 
-const { isBloodTypeCompatible } = require('../utils/bloodCompatibility');
+const { isBloodTypeCompatible,getCompatibleTypes } = require('../utils/bloodCompatibility');
 
 exports.assignDonorToRequest = async (req, res) => {
   const { requestId, donorId } = req.body;
 
-  console.log('[DEBUG] Assigning donor:', { requestId, donorId }); // Log input
+  console.log('[DEBUG] Assigning donor:', { requestId, donorId });
 
   try {
-    // 1. Fetch request and donor
-    const request = await BloodRequest.findById(requestId);
-    const donor = await User.findById(donorId);
-
-    console.log('[DEBUG] Fetched request:', request?._id); // Log request ID
-    console.log('[DEBUG] Fetched donor:', donor?._id, 'Blood type:', donor?.bloodType); // Log donor + blood type
+    // 1. Fetch request and donor with error handling
+    const [request, donor] = await Promise.all([
+      BloodRequest.findById(requestId),
+      User.findById(donorId)
+    ]);
 
     if (!request || !donor) {
-      console.error('[ERROR] Request or donor not found');
-      return res.status(404).json({ error: "Request or donor not found." });
+      console.error('[ERROR] Missing records:', {
+        requestExists: !!request,
+        donorExists: !!donor
+      });
+      return res.status(404).json({ 
+        error: "Request or donor not found.",
+        details: !request ? "Request not found" : "Donor not found"
+      });
     }
 
-    // 2. Check blood compatibility
+    // 2. Initialize assignedDonors if undefined
+    if (!request.assignedDonors) {
+      request.assignedDonors = [];
+      console.log('[DEBUG] Initialized assignedDonors array');
+    }
+
+    // 3. Check blood compatibility
     const isCompatible = isBloodTypeCompatible(donor.bloodType, request.bloodType);
-    console.log('[DEBUG] Blood compatibility:', isCompatible); // Log compatibility check
+    console.log('[DEBUG] Compatibility check:', {
+      donor: donor.bloodType,
+      recipient: request.bloodType,
+      compatible: isCompatible
+    });
 
     if (!isCompatible) {
-      console.error('[ERROR] Blood types incompatible:', {
-        donor: donor.bloodType,
-        recipient: request.bloodType
-      });
-      return res.status(400).json({ 
-        error: "Blood types are not compatible for donation.",
-        details: `Donor (${donor.bloodType}) cannot donate to recipient (${request.bloodType}).`
+      const compatibleTypes = getCompatibleTypes(request.bloodType);
+      return res.status(400).json({
+        error: "Blood type incompatibility",
+        details: `Donor (${donor.bloodType}) cannot donate to (${request.bloodType})`,
+        compatibleTypes,
+        solution: compatibleTypes.length 
+          ? `Needed types: ${compatibleTypes.join(', ')}`
+          : 'No compatible types available'
       });
     }
 
-    // 3. Check if donor is already assigned
-    const isAlreadyAssigned = request.assignedDonors.includes(donorId);
-    console.log('[DEBUG] Donor already assigned:', isAlreadyAssigned); // Log assignment check
+    // 4. Check existing assignments using safe array methods
+    const isAlreadyAssigned = request.assignedDonors.some(id => id.equals(donorId));
+    console.log('[DEBUG] Assignment check:', {
+      existingAssignments: request.assignedDonors.length,
+      isAlreadyAssigned
+    });
 
     if (isAlreadyAssigned) {
-      console.error('[ERROR] Donor already assigned to request');
-      return res.status(400).json({ 
-        error: "This donor is already assigned to the request." 
+      return res.status(400).json({
+        error: "Duplicate assignment",
+        details: "This donor is already assigned",
+        solution: "Check your active donations"
       });
     }
 
-    // 4. Assign donor & save
+    // 5. Process assignment
     request.assignedDonors.push(donorId);
     await request.save();
 
-    console.log('[SUCCESS] Donor assigned:', donorId); // Log success
-    res.status(200).json({ 
-      message: "Donor assigned successfully!",
-      request 
+    console.log('[SUCCESS] Assignment completed:', {
+      requestId: request._id,
+      donorId: donor._id,
+      assignedAt: new Date()
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Donor successfully assigned",
+      request: {
+        id: request._id,
+        bloodType: request.bloodType,
+        assignedDonors: request.assignedDonors.length
+      },
+      donor: {
+        id: donor._id,
+        bloodType: donor.bloodType
+      }
     });
 
   } catch (error) {
-    console.error('[ERROR] Server error:', error.message, error.stack); // Log full error
-    res.status(500).json({ error: "Server error: " + error.message });
+    console.error('[FATAL] Assignment failed:', {
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date()
+    });
+
+    return res.status(500).json({
+      error: "Assignment processing failed",
+      details: error.message,
+      recovery: "Please try again later"
+    });
   }
 };
-
 exports.deleteBloodRequest = async (req, res) => {
   try {
     const { requestId } = req.params;
