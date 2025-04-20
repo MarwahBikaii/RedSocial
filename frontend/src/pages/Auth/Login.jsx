@@ -1,21 +1,19 @@
-﻿import { useState, useEffect } from "react";
+﻿import { useState, useEffect,useContext} from "react";
 import axios from "axios";
-import { setCredentials } from "../../redux/features/auth/authSlice";
-import { useDispatch, useSelector } from "react-redux";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { refreshCart } from "../../redux/features/cart/cartSlice";
 import { auth, provider } from "../../Firebase"; 
 import { signInWithPopup } from "firebase/auth";
+import { AuthContext } from "../../AuthContext";
 
 const Login = () => {
+      const { login } = useContext(AuthContext);
+
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
-    const dispatch = useDispatch();
     const navigate = useNavigate();
-    const { userInfo } = useSelector((state) => state.auth);
     const { search } = useLocation();
     const sp = new URLSearchParams(search);
     const redirect = sp.get("redirect") || "/";
@@ -23,18 +21,18 @@ const Login = () => {
     const signInWithGoogle = async (e) => {
         e.preventDefault();
         try {
-            const result = await signInWithPopup(auth, provider);
             setLoading(true);
-            
+            const result = await signInWithPopup(auth, provider);
+
             const res = await axios.post("http://localhost:3000/api/users/loginWithGoogle", {
                 googleId: result.user.uid,
                 email: result.user.email,
             }, { withCredentials: true });
 
             localStorage.setItem("token", res.data.token);
-            dispatch(setCredentials(res.data));
-            dispatch(refreshCart());
-            
+            login( res.data.token); // 🔥 Triggers context update
+           localStorage.setItem("userInfo", JSON.stringify(res.data));
+
             toast.success("Login successful!");
             setTimeout(() => navigate(redirect), 1500);
         } catch (error) {
@@ -46,11 +44,12 @@ const Login = () => {
         }
     };
 
-    useEffect(() => {
-        if (userInfo) {
-            navigate(redirect);
-        }
-    }, [navigate, redirect, userInfo]);
+useEffect(() => {
+    if (localStorage.getItem("userInfo")) {
+        navigate(redirect);
+    }
+}, [navigate, redirect]);
+
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -63,9 +62,10 @@ const Login = () => {
             );
 
             localStorage.setItem("token", response.data.token);
-            dispatch(setCredentials(response.data));
-            dispatch(refreshCart());
-            
+           login(response.data.token);
+           localStorage.setItem("userInfo", JSON.stringify(response.data));
+
+
             toast.success("Login successful!");
             setTimeout(() => navigate(redirect), 1500);
         } catch (err) {
@@ -77,7 +77,7 @@ const Login = () => {
 
     return (
         <div className="flex items-center justify-center pt-2 bg-gradient-to-r from-[#0097b2]/10 to-[#ff3131]/10 px-4 min-h-[90vh]">
-            <div className="w-full max-w-md bg-white rounded-xl shadow-lg mt-[-50px]"> {/* Negative margin pulls form up */}
+            <div className="w-full max-w-md bg-white rounded-xl shadow-lg mt-[-50px]">
                 <div className="p-8">
                     <h1 className="text-3xl font-bold text-[#0097b2] mb-2">Welcome Back</h1>
                     <p className="text-gray-600 mb-6 text-base">Login to continue saving lives</p>

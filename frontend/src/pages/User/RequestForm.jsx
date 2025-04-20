@@ -156,14 +156,7 @@ const getReadableAddress = async (lat, lng) => {
     if (hospitalsWithCompleteInfo.length > 0) {
       setSelectedHospital(hospitalsWithCompleteInfo[0]);
       setHospitalFormValues(hospitalsWithCompleteInfo[0]);
-    } else {
-      MySwal.fire({
-        title: 'No Complete Hospital Data',
-        text: 'We could not find nearby hospitals with complete information. Please enter details manually.',
-        icon: 'info',
-        confirmButtonColor: '#00CCCC'
-      });
-    }
+    } 
   } catch (error) {
     console.error("Error fetching hospitals:", error);
     MySwal.fire({
